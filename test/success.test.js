@@ -2037,7 +2037,7 @@ test("Close open issues when a release is successful", async (t) => {
   t.true(fetch.done());
 });
 
-test('Add comment on issues/PR and skip label if "successComment" is unset / "releaseLabels" is "false"', async (t) => {
+test('Add comment on issues/PR and skip label if "successComment" is unset / "releasedLabels" is "false"', async (t) => {
   const owner = "test_user";
   const repo = "test_repo";
   const env = { GITHUB_TOKEN: "github_token" };
@@ -2123,7 +2123,7 @@ test('Add comment on issues/PR and skip label if "successComment" is unset / "re
   t.true(fetch.done());
 });
 
-test('Skip comment on issues/PR and add label if "successComment" is "false" / "releaseLabels" is unset', async (t) => {
+test('Skip comment on issues/PR and add label if "successComment" is "false" / "releasedLabels" is unset', async (t) => {
   const owner = "test_user";
   const repo = "test_repo";
   const env = { GITHUB_TOKEN: "github_token" };
@@ -2204,7 +2204,7 @@ test('Skip comment on issues/PR and add label if "successComment" is "false" / "
   t.true(fetch.done());
 });
 
-test('Skip comment on issues/PR and skip label if "successComment" is "false" / "releaseLabels" is "false"', async (t) => {
+test('Skip comment on issues/PR and skip label if "successComment" is "false" / "releasedLabels" is "false"', async (t) => {
   const owner = "test_user";
   const repo = "test_repo";
   const env = { GITHUB_TOKEN: "github_token" };
