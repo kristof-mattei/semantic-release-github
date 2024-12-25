@@ -1992,13 +1992,13 @@ test("Ignore missing and forbidden issues/PRs", async (t) => {
   );
   t.true(
     t.context.error.calledWith(
-      "Failed to add a comment to the issue/PR #%d as it doesn't exist.",
+      "Failed to add a comment/label to the issue/PR #%d as it doesn't exist.",
       2,
     ),
   );
   t.true(
     t.context.error.calledWith(
-      "Not allowed to add a comment to the issue/PR #%d.",
+      "Not allowed to add a comment/label to the issue/PR #%d.",
       3,
     ),
   );
@@ -3225,7 +3225,7 @@ test("Ignore errors when adding comments and closing issues", async (t) => {
   t.is(error2.status, 500);
   t.true(
     t.context.error.calledWith(
-      "Failed to add a comment to the issue/PR #%d.",
+      "Failed to add a comment/label to the issue/PR #%d.",
       1,
     ),
   );
@@ -3522,7 +3522,9 @@ test('Skip comment on issues/PR and skip label if "successComment" is "false" / 
   );
 
   t.true(
-    t.context.log.calledWith("Skip commenting on issues and pull requests."),
+    t.context.log.calledWith(
+      "Skip commenting / adding labels on issues and pull requests.",
+    ),
   );
   t.true(fetch.done());
 });
@@ -3592,7 +3594,7 @@ test('Does not comment/label on issues/PR if "successCommentCondition" is "false
   t.true(fetch.done());
 });
 
-test('Add comment and label to found issues/associatedPR using the "successCommentCondition": if specific label is found', async (t) => {
+test('Add comment and label to found issues/associated PR using the "successCommentCondition": if specific label is found', async (t) => {
   const owner = "test_user";
   const repo = "test_repo";
   const env = { GITHUB_TOKEN: "github_token" };
