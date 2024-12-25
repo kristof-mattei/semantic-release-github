@@ -3,7 +3,7 @@ import sinon from "sinon";
 import test from "ava";
 import fetchMock from "fetch-mock";
 
-import { ISSUE_ID } from "../lib/definitions/constants.js";
+import { ISSUE_ID, RELEASE_FAIL_LABEL } from "../lib/definitions/constants.js";
 import { TestOctokit } from "./helpers/test-octokit.js";
 
 /* eslint camelcase: ["error", {properties: "never"}] */
@@ -14,7 +14,12 @@ test.beforeEach((t) => {
   // Mock logger
   t.context.log = sinon.stub();
   t.context.error = sinon.stub();
-  t.context.logger = { log: t.context.log, error: t.context.error };
+  t.context.warn = sinon.stub();
+  t.context.logger = {
+    log: t.context.log,
+    error: t.context.error,
+    warn: t.context.warn,
+  };
 });
 
 test("Open a new issue with the list of errors", async (t) => {
@@ -35,6 +40,13 @@ test("Open a new issue with the list of errors", async (t) => {
     .sandbox()
     .getOnce("https://api.github.local/repos/test_user/test_repo", {
       full_name: `${redirectedOwner}/${redirectedRepo}`,
+    })
+    .postOnce("https://api.github.local/graphql", {
+      data: {
+        repository: {
+          issues: { nodes: [] },
+        },
+      },
     })
     .getOnce(
       `https://api.github.local/search/issues?q=${encodeURIComponent(
@@ -59,7 +71,7 @@ test("Open a new issue with the list of errors", async (t) => {
           data.body,
           /---\n\n### Error message 1\n\nError 1 details\n\n---\n\n### Error message 2\n\nError 2 details\n\n---\n\n### Error message 3\n\nError 3 details\n\n---/,
         );
-        t.deepEqual(data.labels, ["semantic-release"]);
+        t.deepEqual(data.labels, ["semantic-release", RELEASE_FAIL_LABEL]);
         return true;
       },
       {
@@ -115,6 +127,14 @@ test("Open a new issue with the list of errors and custom title and comment", as
     .sandbox()
     .getOnce(`https://api.github.local/repos/${owner}/${repo}`, {
       full_name: `${owner}/${repo}`,
+      clone_url: `https://api.github.local/${owner}/${repo}.git`,
+    })
+    .postOnce("https://api.github.local/graphql", {
+      data: {
+        repository: {
+          issues: { nodes: [] },
+        },
+      },
     })
     .getOnce(
       `https://api.github.local/search/issues?q=${encodeURIComponent(
@@ -131,7 +151,7 @@ test("Open a new issue with the list of errors and custom title and comment", as
         body: {
           title: failTitle,
           body: `branch master Error message 1 Error message 2 Error message 3\n\n${ISSUE_ID}`,
-          labels: ["semantic-release"],
+          labels: ["semantic-release", RELEASE_FAIL_LABEL],
         },
       },
     );
@@ -182,6 +202,14 @@ test("Open a new issue with assignees and the list of errors", async (t) => {
     .sandbox()
     .getOnce(`https://api.github.local/repos/${owner}/${repo}`, {
       full_name: `${owner}/${repo}`,
+      clone_url: `https://api.github.local/${owner}/${repo}.git`,
+    })
+    .postOnce("https://api.github.local/graphql", {
+      data: {
+        repository: {
+          issues: { nodes: [] },
+        },
+      },
     })
     .getOnce(
       `https://api.github.local/search/issues?q=${encodeURIComponent(
@@ -201,7 +229,7 @@ test("Open a new issue with assignees and the list of errors", async (t) => {
           data.body,
           /---\n\n### Error message 1\n\nError 1 details\n\n---\n\n### Error message 2\n\nError 2 details\n\n---/,
         );
-        t.deepEqual(data.labels, ["semantic-release"]);
+        t.deepEqual(data.labels, ["semantic-release", RELEASE_FAIL_LABEL]);
         t.deepEqual(data.assignees, ["user1", "user2"]);
         return true;
       },
@@ -254,6 +282,14 @@ test("Open a new issue without labels and the list of errors", async (t) => {
     .sandbox()
     .getOnce(`https://api.github.local/repos/${owner}/${repo}`, {
       full_name: `${owner}/${repo}`,
+      clone_url: `https://api.github.local/${owner}/${repo}.git`,
+    })
+    .postOnce("https://api.github.local/graphql", {
+      data: {
+        repository: {
+          issues: { nodes: [] },
+        },
+      },
     })
     .getOnce(
       `https://api.github.local/search/issues?q=${encodeURIComponent(
@@ -273,7 +309,7 @@ test("Open a new issue without labels and the list of errors", async (t) => {
           data.body,
           /---\n\n### Error message 1\n\nError 1 details\n\n---\n\n### Error message 2\n\nError 2 details\n\n---/,
         );
-        t.deepEqual(data.labels, []);
+        t.deepEqual(data.labels, [RELEASE_FAIL_LABEL]);
         return true;
       },
       { html_url: "https://github.com/issues/1", number: 1 },
@@ -330,15 +366,15 @@ test("Update the first existing issue with the list of errors", async (t) => {
     .sandbox()
     .getOnce(`https://api.github.local/repos/${owner}/${repo}`, {
       full_name: `${owner}/${repo}`,
+      clone_url: `https://api.github.local/${owner}/${repo}.git`,
     })
-    .getOnce(
-      `https://api.github.local/search/issues?q=${encodeURIComponent(
-        "in:title",
-      )}+${encodeURIComponent(`repo:${owner}/${repo}`)}+${encodeURIComponent(
-        "type:issue",
-      )}+${encodeURIComponent("state:open")}+${encodeURIComponent(failTitle)}`,
-      { items: issues },
-    )
+    .postOnce("https://api.github.local/graphql", {
+      data: {
+        repository: {
+          issues: { nodes: issues },
+        },
+      },
+    })
     .postOnce(
       (url, { body }) => {
         t.is(
@@ -446,4 +482,166 @@ test('Skip if "failTitle" is "false"', async (t) => {
   );
 
   t.true(t.context.log.calledWith("Skip issue creation."));
+});
+
+test('Does not post comments if "failCommentCondition" is "false"', async (t) => {
+  const owner = "test_user";
+  const repo = "test_repo";
+  const env = { GITHUB_TOKEN: "github_token" };
+  const pluginConfig = { failCommentCondition: false };
+  const options = { repositoryUrl: `https://github.com/${owner}/${repo}.git` };
+
+  await fail(
+    pluginConfig,
+    {
+      env,
+      options,
+      branch: { name: "master" },
+      logger: t.context.logger,
+    },
+    {
+      Octokit: TestOctokit.defaults((options) => ({
+        ...options,
+        request: { ...options.request, fetch },
+      })),
+    },
+  );
+
+  t.true(t.context.log.calledWith("Skip issue creation."));
+});
+
+test('Does not post comments on existing issues when "failCommentCondition" is "false"', async (t) => {
+  const owner = "test_user";
+  const repo = "test_repo";
+  const failTitle = "The automated release is failing 🚨";
+  const env = { GITHUB_TOKEN: "github_token" };
+  const pluginConfig = { failCommentCondition: "<% return false; %>" };
+  const options = { repositoryUrl: `https://github.com/${owner}/${repo}.git` };
+  const errors = [
+    new SemanticReleaseError("Error message 1", "ERR1", "Error 1 details"),
+    new SemanticReleaseError("Error message 2", "ERR2", "Error 2 details"),
+    new SemanticReleaseError("Error message 3", "ERR3", "Error 3 details"),
+  ];
+  const issues = [
+    { number: 1, body: "Issue 1 body", title: failTitle },
+    { number: 2, body: `Issue 2 body\n\n${ISSUE_ID}`, title: failTitle },
+    { number: 3, body: `Issue 3 body\n\n${ISSUE_ID}`, title: failTitle },
+  ];
+
+  const fetch = fetchMock
+    .sandbox()
+    .getOnce(`https://api.github.local/repos/${owner}/${repo}`, {
+      full_name: `${owner}/${repo}`,
+    })
+    .postOnce(
+      (url, { body }) =>
+        url === "https://api.github.local/graphql" &&
+        JSON.parse(body).query.includes("query getSRIssues("),
+      {
+        data: {
+          repository: {
+            issues: { nodes: issues },
+          },
+        },
+      },
+    );
+
+  await fail(
+    pluginConfig,
+    {
+      env,
+      options,
+      branch: { name: "master" },
+      errors,
+      logger: t.context.logger,
+    },
+    {
+      Octokit: TestOctokit.defaults((options) => ({
+        ...options,
+        request: { ...options.request, fetch },
+      })),
+    },
+  );
+
+  t.true(fetch.done());
+  t.true(t.context.log.calledWith("Skip commenting on or creating an issue."));
+});
+
+test(`Post new issue if none exists yet, but don't comment on existing issues when "failCommentCondition" disallows it`, async (t) => {
+  const owner = "test_user";
+  const repo = "test_repo";
+  const env = { GITHUB_TOKEN: "github_token" };
+  const errors = [{ message: "An error occured" }];
+  const failTitle = "The automated release is failing 🚨";
+  const pluginConfig = {
+    failTitle,
+    failComment: `Error: Release for branch \${branch.name} failed with error: \${errors.map(error => error.message).join(';')}`,
+    failCommentCondition: "<% return !issue; %>",
+  };
+  const options = {
+    repositoryUrl: `https://github.com/${owner}/${repo}.git`,
+  };
+
+  const fetch = fetchMock
+    .sandbox()
+    .getOnce(`https://api.github.local/repos/${owner}/${repo}`, {
+      full_name: `${owner}/${repo}`,
+    })
+    .postOnce(
+      (url, { body }) =>
+        url === "https://api.github.local/graphql" &&
+        JSON.parse(body).query.includes("query getSRIssues("),
+      {
+        data: {
+          repository: {
+            issues: { nodes: [] },
+          },
+        },
+      },
+    )
+    .getOnce(
+      `https://api.github.local/search/issues?q=${encodeURIComponent(
+        "in:title",
+      )}+${encodeURIComponent(`repo:${owner}/${repo}`)}+${encodeURIComponent(
+        "type:issue",
+      )}+${encodeURIComponent("state:open")}+${encodeURIComponent(failTitle)}`,
+      { items: [] },
+    )
+    .postOnce(
+      (url, { body }) => {
+        t.is(url, `https://api.github.local/repos/${owner}/${repo}/issues`);
+        t.regex(
+          JSON.parse(body).body,
+          /Error: Release for branch master failed with error: An error occured\n\n<!-- semantic-release:github -->/,
+        );
+        return true;
+      },
+      { html_url: "https://github.com/issues/2", number: 2 },
+    );
+
+  await fail(
+    pluginConfig,
+    {
+      env,
+      options,
+      branch: { name: "master" },
+      errors,
+      logger: t.context.logger,
+    },
+    {
+      Octokit: TestOctokit.defaults((options) => ({
+        ...options,
+        request: { ...options.request, fetch },
+      })),
+    },
+  );
+
+  t.true(fetch.done());
+  t.true(
+    t.context.log.calledWith(
+      "Created issue #%d: %s.",
+      2,
+      "https://github.com/issues/2",
+    ),
+  );
 });

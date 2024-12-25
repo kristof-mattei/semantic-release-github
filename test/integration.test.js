@@ -2,6 +2,7 @@ import test from "ava";
 import sinon from "sinon";
 import SemanticReleaseError from "@semantic-release/error";
 import fetchMock from "fetch-mock";
+import { RELEASE_FAIL_LABEL } from "../lib/definitions/constants.js";
 
 import { TestOctokit } from "./helpers/test-octokit.js";
 
@@ -13,7 +14,12 @@ test.beforeEach(async (t) => {
   // Stub the logger
   t.context.log = sinon.stub();
   t.context.error = sinon.stub();
-  t.context.logger = { log: t.context.log, error: t.context.error };
+  t.context.warn = sinon.stub();
+  t.context.logger = {
+    log: t.context.log,
+    error: t.context.error,
+    warn: t.context.warn,
+  };
 });
 
 test("Verify GitHub auth", async (t) => {
@@ -27,7 +33,10 @@ test("Verify GitHub auth", async (t) => {
   const fetch = fetchMock
     .sandbox()
     .getOnce(`https://api.github.local/repos/${owner}/${repo}`, {
-      permissions: { push: true },
+      permissions: {
+        push: true,
+      },
+      clone_url: `https://api.github.local/${owner}/${repo}.git`,
     });
 
   await t.notThrowsAsync(
@@ -56,8 +65,11 @@ test("Verify GitHub auth with publish options", async (t) => {
   };
   const fetch = fetchMock
     .sandbox()
-    .getOnce(`https://api.github.local/repos/${owner}/${repo}`, {
-      permissions: { push: true },
+    .get(`https://api.github.local/repos/${owner}/${repo}`, {
+      permissions: {
+        push: true,
+      },
+      clone_url: `https://api.github.local/${owner}/${repo}.git`,
     });
 
   await t.notThrowsAsync(
@@ -94,7 +106,10 @@ test("Verify GitHub auth and assets config", async (t) => {
   const fetch = fetchMock
     .sandbox()
     .getOnce(`https://api.github.local/repos/${owner}/${repo}`, {
-      permissions: { push: true },
+      permissions: {
+        push: true,
+      },
+      clone_url: `https://api.github.local/${owner}/${repo}.git`,
     });
 
   await t.notThrowsAsync(
@@ -197,7 +212,10 @@ test("Publish a release with an array of assets", async (t) => {
   const fetch = fetchMock
     .sandbox()
     .getOnce(`https://api.github.local/repos/${owner}/${repo}`, {
-      permissions: { push: true },
+      permissions: {
+        push: true,
+      },
+      clone_url: `https://api.github.local/${owner}/${repo}.git`,
     })
     .postOnce(
       `https://api.github.local/repos/${owner}/${repo}/releases`,
@@ -289,7 +307,10 @@ test("Publish a release with release information in assets", async (t) => {
   const fetch = fetchMock
     .sandbox()
     .getOnce(`https://api.github.local/repos/${owner}/${repo}`, {
-      permissions: { push: true },
+      permissions: {
+        push: true,
+      },
+      clone_url: `https://api.github.local/${owner}/${repo}.git`,
     })
     .postOnce(
       `https://api.github.local/repos/${owner}/${repo}/releases`,
@@ -359,7 +380,10 @@ test("Update a release", async (t) => {
   const fetch = fetchMock
     .sandbox()
     .getOnce(`https://api.github.local/repos/${owner}/${repo}`, {
-      permissions: { push: true },
+      permissions: {
+        push: true,
+      },
+      clone_url: `https://api.github.local/${owner}/${repo}.git`,
     })
     .getOnce(
       `https://api.github.local/repos/${owner}/${repo}/releases/tags/${nextRelease.gitTag}`,
@@ -409,7 +433,7 @@ test("Comment and add labels on PR included in the releases", async (t) => {
   const repo = "test_repo";
   const env = { GITHUB_TOKEN: "github_token" };
   const failTitle = "The automated release is failing 🚨";
-  const prs = [{ number: 1, pull_request: {}, state: "closed" }];
+  const prs = [{ number: 1, __typename: "PullRequest", state: "closed" }];
   const options = {
     repositoryUrl: `https://github.com/${owner}/${repo}.git`,
   };
@@ -426,23 +450,35 @@ test("Comment and add labels on PR included in the releases", async (t) => {
       {
         permissions: { push: true },
         full_name: `${owner}/${repo}`,
+        clone_url: `htttps://api.github.local/${owner}/${repo}.git`,
       },
       {
-        // TODO: why do we call the same endpoint twice?
         repeat: 2,
       },
     )
-    .postOnce("https://api.github.local/graphql", {
-      data: {
-        repository: {
-          commit123: {
-            associatedPullRequests: {
-              nodes: [prs[0]],
+    .postOnce(
+      (url, { body }) => {
+        t.is(url, "https://api.github.local/graphql");
+        t.regex(JSON.parse(body).query, /query getAssociatedPRs\(/);
+        return true;
+      },
+      {
+        data: {
+          repository: {
+            commit123: {
+              oid: "123",
+              associatedPullRequests: {
+                pageInfo: {
+                  endCursor: "NI",
+                  hasNextPage: false,
+                },
+                nodes: [prs[0]],
+              },
             },
           },
         },
       },
-    })
+    )
     .getOnce(
       `https://api.github.local/repos/${owner}/${repo}/pulls/1/commits`,
       [{ sha: commits[0].hash }],
@@ -466,6 +502,20 @@ test("Comment and add labels on PR included in the releases", async (t) => {
       {},
       {
         labels: ["released"],
+      },
+    )
+    .postOnce(
+      (url, { body }) => {
+        t.is(url, "https://api.github.local/graphql");
+        t.regex(JSON.parse(body).query, /query getSRIssues\(/);
+        return true;
+      },
+      {
+        data: {
+          repository: {
+            issues: { nodes: [] },
+          },
+        },
       },
     )
     .getOnce(
@@ -499,13 +549,13 @@ test("Comment and add labels on PR included in the releases", async (t) => {
   t.deepEqual(t.context.log.args[0], ["Verify GitHub authentication"]);
   t.true(
     t.context.log.calledWith(
-      "Added comment to issue #%d: %s",
+      "Added comment to PR #%d: %s",
       1,
       "https://github.com/successcomment-1",
     ),
   );
   t.true(
-    t.context.log.calledWith("Added labels %O to issue #%d", ["released"], 1),
+    t.context.log.calledWith("Added labels %O to PR #%d", ["released"], 1),
   );
   t.true(fetch.done());
 });
@@ -529,11 +579,17 @@ test("Open a new issue with the list of errors", async (t) => {
       {
         permissions: { push: true },
         full_name: `${owner}/${repo}`,
+        clone_url: `htttps://api.github.local/${owner}/${repo}.git`,
       },
-      {
-        repeat: 2,
-      },
+      { repeat: 2 },
     )
+    .postOnce("https://api.github.local/graphql", {
+      data: {
+        repository: {
+          issues: { nodes: [] },
+        },
+      },
+    })
     .getOnce(
       `https://api.github.local/search/issues?q=${encodeURIComponent(
         "in:title",
@@ -551,7 +607,7 @@ test("Open a new issue with the list of errors", async (t) => {
           data.body,
           /---\n\n### Error message 1\n\nError 1 details\n\n---\n\n### Error message 2\n\nError 2 details\n\n---\n\n### Error message 3\n\nError 3 details\n\n---/,
         );
-        t.deepEqual(data.labels, ["semantic-release"]);
+        t.deepEqual(data.labels, ["semantic-release", RELEASE_FAIL_LABEL]);
 
         return true;
       },
@@ -615,7 +671,7 @@ test("Verify, release and notify success", async (t) => {
   const uploadOrigin = "https://github.com";
   const uploadUri = `/api/uploads/repos/${owner}/${repo}/releases/${releaseId}/assets`;
   const uploadUrl = `${uploadOrigin}${uploadUri}{?name,label}`;
-  const prs = [{ number: 1, pull_request: {}, state: "closed" }];
+  const prs = [{ number: 1, pull_request: true, state: "closed" }];
   const commits = [{ hash: "123", message: "Commit 1 message" }];
 
   const fetch = fetchMock
@@ -625,9 +681,43 @@ test("Verify, release and notify success", async (t) => {
       {
         permissions: { push: true },
         full_name: `${owner}/${repo}`,
+        clone_url: `htttps://api.github.local/${owner}/${repo}.git`,
       },
       {
         repeat: 2,
+      },
+    )
+    .postOnce(
+      (url, { body }) =>
+        url === "https://api.github.local/graphql" &&
+        JSON.parse(body).query.includes("query getAssociatedPRs("),
+      {
+        data: {
+          repository: {
+            commit123: {
+              oid: "123",
+              associatedPullRequests: {
+                pageInfo: {
+                  endCursor: "NI",
+                  hasNextPage: false,
+                },
+                nodes: [prs[0]],
+              },
+            },
+          },
+        },
+      },
+    )
+    .postOnce(
+      (url, { body }) =>
+        url === "https://api.github.local/graphql" &&
+        JSON.parse(body).query.includes("query getSRIssues("),
+      {
+        data: {
+          repository: {
+            issues: { nodes: [] },
+          },
+        },
       },
     )
     .postOnce(
@@ -652,17 +742,6 @@ test("Verify, release and notify success", async (t) => {
       { html_url: releaseUrl },
       { body: { draft: false } },
     )
-    .postOnce("https://api.github.local/graphql", {
-      data: {
-        repository: {
-          commit123: {
-            associatedPullRequests: {
-              nodes: [prs[0]],
-            },
-          },
-        },
-      },
-    })
     .getOnce(
       `https://api.github.local/repos/${owner}/${repo}/pulls/1/commits`,
       [{ sha: commits[0].hash }],
@@ -773,7 +852,7 @@ test("Verify, update release and notify success", async (t) => {
   };
   const releaseUrl = `https://github.com/${owner}/${repo}/releases/${nextRelease.version}`;
   const releaseId = 1;
-  const prs = [{ number: 1, pull_request: {}, state: "closed" }];
+  const prs = [{ number: 1, pull_request: true, state: "closed" }];
   const commits = [
     { hash: "123", message: "Commit 1 message", tree: { long: "aaa" } },
   ];
@@ -785,6 +864,7 @@ test("Verify, update release and notify success", async (t) => {
       {
         permissions: { push: true },
         full_name: `${owner}/${repo}`,
+        clone_url: `htttps://api.github.local/${owner}/${repo}.git`,
       },
       {
         repeat: 2,
@@ -805,17 +885,29 @@ test("Verify, update release and notify success", async (t) => {
         },
       },
     )
-    .postOnce("https://api.github.local/graphql", {
-      data: {
-        repository: {
-          commit123: {
-            associatedPullRequests: {
-              nodes: [prs[0]],
+    .postOnce(
+      (url, { body }) => {
+        t.is(url, "https://api.github.local/graphql");
+        t.regex(JSON.parse(body).query, /query getAssociatedPRs\(/);
+        return true;
+      },
+      {
+        data: {
+          repository: {
+            commit123: {
+              oid: "123",
+              associatedPullRequests: {
+                pageInfo: {
+                  endCursor: "NI",
+                  hasNextPage: false,
+                },
+                nodes: [prs[0]],
+              },
             },
           },
         },
       },
-    })
+    )
     .getOnce(
       `https://api.github.local/repos/${owner}/${repo}/pulls/1/commits`,
       [{ sha: commits[0].hash }],
@@ -831,6 +923,20 @@ test("Verify, update release and notify success", async (t) => {
       {},
       {
         labels: ["released"],
+      },
+    )
+    .postOnce(
+      (url, { body }) => {
+        t.is(url, "https://api.github.local/graphql");
+        t.regex(JSON.parse(body).query, /query getSRIssues\(/);
+        return true;
+      },
+      {
+        data: {
+          repository: {
+            issues: { nodes: [] },
+          },
+        },
       },
     )
     .getOnce(
@@ -917,11 +1023,19 @@ test("Verify and notify failure", async (t) => {
       {
         permissions: { push: true },
         full_name: `${owner}/${repo}`,
+        clone_url: `htttps://api.github.local/${owner}/${repo}.git`,
       },
       {
         repeat: 2,
       },
     )
+    .postOnce("https://api.github.local/graphql", {
+      data: {
+        repository: {
+          issues: { nodes: [] },
+        },
+      },
+    })
     .getOnce(
       `https://api.github.local/search/issues?q=${encodeURIComponent(
         "in:title",
